@@ -195,7 +195,7 @@ exports.handle = function (e, ctx) {
 
 ## Contributors
 
-A big thank you to all the [contributors](https://github.com/johannesboyne/gofakes3/graphs/contributors),
+A big thank you to all the [contributors](https://github.com/gkalele/s3tohdfs/graphs/contributors),
 especially [Blake @shabbyrobe](https://github.com/shabbyrobe) who pushed this
 little project to the next level!
 

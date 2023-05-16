@@ -6,7 +6,7 @@ import (
 	"math/big"
 	"sync"
 
-	"github.com/johannesboyne/gofakes3"
+	"github.com/gkalele/s3tohdfs"
 )
 
 var add1 = new(big.Int).SetInt64(1)

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/johannesboyne/gofakes3"
+	"github.com/gkalele/s3tohdfs"
 )
 
 func TestVersionID(t *testing.T) {

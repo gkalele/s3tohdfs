@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/johannesboyne/gofakes3"
+	"github.com/gkalele/s3tohdfs"
 	"github.com/spf13/afero"
 )
 

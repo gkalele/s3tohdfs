@@ -19,8 +19,8 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/johannesboyne/gofakes3"
-	"github.com/johannesboyne/gofakes3/backend/s3mem"
+	"github.com/gkalele/s3tohdfs"
+	"github.com/gkalele/s3tohdfs/backend/s3mem"
 )
 
 func TestCreateBucket(t *testing.T) {

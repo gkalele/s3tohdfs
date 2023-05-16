@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/johannesboyne/gofakes3"
+	"github.com/gkalele/s3tohdfs"
 )
 
 func TestMultipartUpload(t *testing.T) {
