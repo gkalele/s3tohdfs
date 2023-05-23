@@ -1,4 +1,4 @@
-package gofakes3_test
+package s3tohdfs_test
 
 // Initialisation file for tests in the 'gofakes3_test' package. Integration tests
 // and the like go in this package as we are unable to use backends without the

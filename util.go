@@ -1,4 +1,4 @@
-package gofakes3
+package s3tohdfs
 
 import (
 	"io"

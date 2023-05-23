@@ -25,7 +25,7 @@ func newVersionGenerator(seed uint64, size int) *versionGenerator {
 	return &versionGenerator{next: new(big.Int), state: seed}
 }
 
-func (v *versionGenerator) Next(scratch []byte) (gofakes3.VersionID, []byte) {
+func (v *versionGenerator) Next(scratch []byte) (s3tohdfs.VersionID, []byte) {
 	v.mu.Lock()
 
 	v.next.Add(v.next, add1)
@@ -63,5 +63,5 @@ func (v *versionGenerator) Next(scratch []byte) (gofakes3.VersionID, []byte) {
 	// sortable for the SkipList key, so we have to encode it as base32hex, which _is_
 	// sortable, and just pretend that it's "Base64". Phew!
 
-	return gofakes3.VersionID(fmt.Sprintf("3/%s", base32.HexEncoding.EncodeToString(scratch))), scratch
+	return s3tohdfs.VersionID(fmt.Sprintf("3/%s", base32.HexEncoding.EncodeToString(scratch))), scratch
 }

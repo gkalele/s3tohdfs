@@ -15,26 +15,26 @@ import (
 )
 
 var (
-	emptyPrefix = &gofakes3.Prefix{}
+	emptyPrefix = &s3tohdfs.Prefix{}
 )
 
 type Backend struct {
 	bolt           *bolt.DB
-	timeSource     gofakes3.TimeSource
+	timeSource     s3tohdfs.TimeSource
 	metaBucketName []byte
 }
 
-var _ gofakes3.Backend = &Backend{}
+var _ s3tohdfs.Backend = &Backend{}
 
 type Option func(b *Backend)
 
-func WithTimeSource(timeSource gofakes3.TimeSource) Option {
+func WithTimeSource(timeSource s3tohdfs.TimeSource) Option {
 	return func(b *Backend) { b.timeSource = timeSource }
 }
 
 func NewFile(file string, opts ...Option) (*Backend, error) {
 	if file == "" {
-		return nil, fmt.Errorf("gofakes3: invalid bolt file name")
+		return nil, fmt.Errorf("s3tohdfs: invalid bolt file name")
 	}
 	db, err := bolt.Open(file, 0600, nil)
 	if err != nil {
@@ -52,7 +52,7 @@ func New(bolt *bolt.DB, opts ...Option) *Backend {
 		opt(b)
 	}
 	if b.timeSource == nil {
-		b.timeSource = gofakes3.DefaultTimeSource()
+		b.timeSource = s3tohdfs.DefaultTimeSource()
 	}
 	return b
 }
@@ -84,8 +84,8 @@ func (db *Backend) metaBucket(tx *bolt.Tx) (*metaBucket, error) {
 	}, nil
 }
 
-func (db *Backend) ListBuckets() ([]gofakes3.BucketInfo, error) {
-	var buckets []gofakes3.BucketInfo
+func (db *Backend) ListBuckets() ([]s3tohdfs.BucketInfo, error) {
+	var buckets []s3tohdfs.BucketInfo
 
 	err := db.bolt.View(func(tx *bolt.Tx) error {
 		metaBucket, err := db.metaBucket(tx)
@@ -99,7 +99,7 @@ func (db *Backend) ListBuckets() ([]gofakes3.BucketInfo, error) {
 			}
 
 			nameStr := string(name)
-			info := gofakes3.BucketInfo{Name: nameStr}
+			info := s3tohdfs.BucketInfo{Name: nameStr}
 
 			// Attempt to assign metadata. If it isn't found, we will just
 			// pretend that's fine for now. This is to support existing
@@ -113,13 +113,13 @@ func (db *Backend) ListBuckets() ([]gofakes3.BucketInfo, error) {
 					return err
 				}
 				if bucketInfo != nil {
-					info.CreationDate = gofakes3.NewContentTime(bucketInfo.CreationDate)
+					info.CreationDate = s3tohdfs.NewContentTime(bucketInfo.CreationDate)
 				}
 			}
 
 			// The AWS CLI will fail if there is no creation date:
 			if info.CreationDate.IsZero() {
-				info.CreationDate = gofakes3.NewContentTime(db.timeSource.Now())
+				info.CreationDate = s3tohdfs.NewContentTime(db.timeSource.Now())
 			}
 
 			buckets = append(buckets, info)
@@ -130,24 +130,24 @@ func (db *Backend) ListBuckets() ([]gofakes3.BucketInfo, error) {
 	return buckets, err
 }
 
-func (db *Backend) ListBucket(name string, prefix *gofakes3.Prefix, page gofakes3.ListBucketPage) (*gofakes3.ObjectList, error) {
+func (db *Backend) ListBucket(name string, prefix *s3tohdfs.Prefix, page s3tohdfs.ListBucketPage) (*s3tohdfs.ObjectList, error) {
 	if prefix == nil {
 		prefix = emptyPrefix
 	}
 	if !page.IsEmpty() {
-		return nil, gofakes3.ErrInternalPageNotImplemented
+		return nil, s3tohdfs.ErrInternalPageNotImplemented
 	}
 
-	objects := gofakes3.NewObjectList()
+	objects := s3tohdfs.NewObjectList()
 
 	err := db.bolt.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(name))
 		if b == nil {
-			return gofakes3.BucketNotFound(name)
+			return s3tohdfs.BucketNotFound(name)
 		}
 
 		c := b.Cursor()
-		var match gofakes3.PrefixMatch
+		var match s3tohdfs.PrefixMatch
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			key := string(k)
@@ -161,13 +161,13 @@ func (db *Backend) ListBucket(name string, prefix *gofakes3.Prefix, page gofakes
 				var b boltObject
 				err := bson.Unmarshal(v, &b)
 				if err != nil {
-					return fmt.Errorf("gofakes3: could not unmarshal object %q: %v", string(k[:]), err)
+					return fmt.Errorf("s3tohdfs: could not unmarshal object %q: %v", string(k[:]), err)
 				}
-				item := &gofakes3.Content{
+				item := &s3tohdfs.Content{
 					Key:          string(k[:]),
 					ETag:         `"` + hex.EncodeToString(b.Hash[:]) + `"`,
 					Size:         b.Size,
-					LastModified: gofakes3.NewContentTime(b.LastModified.UTC()),
+					LastModified: s3tohdfs.NewContentTime(b.LastModified.UTC()),
 				}
 				objects.Add(item)
 			}
@@ -194,7 +194,7 @@ func (db *Backend) CreateBucket(name string) error {
 		{ // create bucket
 			nameBts := []byte(name)
 			if tx.Bucket(nameBts) != nil {
-				return gofakes3.ResourceError(gofakes3.ErrBucketAlreadyExists, name)
+				return s3tohdfs.ResourceError(s3tohdfs.ErrBucketAlreadyExists, name)
 			}
 			if _, err := tx.CreateBucket(nameBts); err != nil {
 				return err
@@ -208,19 +208,19 @@ func (db *Backend) DeleteBucket(name string) error {
 	nameBts := []byte(name)
 
 	if bytes.Equal(nameBts, db.metaBucketName) {
-		return gofakes3.ResourceError(gofakes3.ErrInvalidBucketName, name)
+		return s3tohdfs.ResourceError(s3tohdfs.ErrInvalidBucketName, name)
 	}
 
 	return db.bolt.Update(func(tx *bolt.Tx) error {
 		{ // delete bucket
 			b := tx.Bucket(nameBts)
 			if b == nil {
-				return gofakes3.ErrNoSuchBucket
+				return s3tohdfs.ErrNoSuchBucket
 			}
 			c := b.Cursor()
 			k, _ := c.First()
 			if k != nil {
-				return gofakes3.ResourceError(gofakes3.ErrBucketNotEmpty, name)
+				return s3tohdfs.ResourceError(s3tohdfs.ErrBucketNotEmpty, name)
 			}
 		}
 
@@ -252,7 +252,7 @@ func (db *Backend) BucketExists(name string) (exists bool, err error) {
 	return exists, err
 }
 
-func (db *Backend) HeadObject(bucketName, objectName string) (*gofakes3.Object, error) {
+func (db *Backend) HeadObject(bucketName, objectName string) (*s3tohdfs.Object, error) {
 	obj, err := db.GetObject(bucketName, objectName, nil)
 	if err != nil {
 		return nil, err
@@ -261,22 +261,22 @@ func (db *Backend) HeadObject(bucketName, objectName string) (*gofakes3.Object, 
 	return obj, nil
 }
 
-func (db *Backend) GetObject(bucketName, objectName string, rangeRequest *gofakes3.ObjectRangeRequest) (*gofakes3.Object, error) {
+func (db *Backend) GetObject(bucketName, objectName string, rangeRequest *s3tohdfs.ObjectRangeRequest) (*s3tohdfs.Object, error) {
 	var t boltObject
 
 	err := db.bolt.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
 		if b == nil {
-			return gofakes3.BucketNotFound(bucketName)
+			return s3tohdfs.BucketNotFound(bucketName)
 		}
 
 		v := b.Get([]byte(objectName))
 		if v == nil {
-			return gofakes3.KeyNotFound(objectName)
+			return s3tohdfs.KeyNotFound(objectName)
 		}
 
 		if err := bson.Unmarshal(v, &t); err != nil {
-			return fmt.Errorf("gofakes3: could not unmarshal object at %q/%q: %v", bucketName, objectName, err)
+			return fmt.Errorf("s3tohdfs: could not unmarshal object at %q/%q: %v", bucketName, objectName, err)
 		}
 
 		return nil
@@ -295,14 +295,14 @@ func (db *Backend) PutObject(
 	bucketName, objectName string,
 	meta map[string]string,
 	input io.Reader, size int64,
-) (result gofakes3.PutObjectResult, err error) {
+) (result s3tohdfs.PutObjectResult, err error) {
 
-	bts, err := gofakes3.ReadAll(input, size)
+	bts, err := s3tohdfs.ReadAll(input, size)
 	if err != nil {
 		return result, err
 	}
 
-	err = gofakes3.MergeMetadata(db, bucketName, objectName, meta)
+	err = s3tohdfs.MergeMetadata(db, bucketName, objectName, meta)
 	if err != nil {
 		return result, err
 	}
@@ -313,7 +313,7 @@ func (db *Backend) PutObject(
 	return result, db.bolt.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
 		if b == nil {
-			return gofakes3.BucketNotFound(bucketName)
+			return s3tohdfs.BucketNotFound(bucketName)
 		}
 
 		data, err := bson.Marshal(&boltObject{
@@ -334,37 +334,37 @@ func (db *Backend) PutObject(
 	})
 }
 
-func (db *Backend) DeleteObject(bucketName, objectName string) (result gofakes3.ObjectDeleteResult, rerr error) {
+func (db *Backend) DeleteObject(bucketName, objectName string) (result s3tohdfs.ObjectDeleteResult, rerr error) {
 	return result, db.bolt.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
 		if b == nil {
-			return gofakes3.BucketNotFound(bucketName)
+			return s3tohdfs.BucketNotFound(bucketName)
 		}
 		if err := b.Delete([]byte(objectName)); err != nil {
-			return fmt.Errorf("gofakes3: delete failed for object %q in bucket %q", objectName, bucketName)
+			return fmt.Errorf("s3tohdfs: delete failed for object %q in bucket %q", objectName, bucketName)
 		}
 		return nil
 	})
 }
 
-func (db *Backend) DeleteMulti(bucketName string, objects ...string) (result gofakes3.MultiDeleteResult, err error) {
+func (db *Backend) DeleteMulti(bucketName string, objects ...string) (result s3tohdfs.MultiDeleteResult, err error) {
 	err = db.bolt.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
 		if b == nil {
-			return gofakes3.BucketNotFound(bucketName)
+			return s3tohdfs.BucketNotFound(bucketName)
 		}
 
 		for _, object := range objects {
 			if err := b.Delete([]byte(object)); err != nil {
 				log.Println("delete object failed:", err)
-				result.Error = append(result.Error, gofakes3.ErrorResult{
-					Code:    gofakes3.ErrInternal,
-					Message: gofakes3.ErrInternal.Message(),
+				result.Error = append(result.Error, s3tohdfs.ErrorResult{
+					Code:    s3tohdfs.ErrInternal,
+					Message: s3tohdfs.ErrInternal.Message(),
 					Key:     object,
 				})
 
 			} else {
-				result.Deleted = append(result.Deleted, gofakes3.ObjectID{
+				result.Deleted = append(result.Deleted, s3tohdfs.ObjectID{
 					Key: object,
 				})
 			}

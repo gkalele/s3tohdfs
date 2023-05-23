@@ -88,5 +88,5 @@ func modTimeResolution(fs afero.Fs) (dur time.Duration, rerr error) {
 		}
 	}
 
-	return 0, fmt.Errorf("gofakes3: could not profile modtime resolution for filesystem")
+	return 0, fmt.Errorf("s3tohdfs: could not profile modtime resolution for filesystem")
 }
