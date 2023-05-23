@@ -11,13 +11,13 @@ import (
 )
 
 var (
-	emptyPrefix       = &gofakes3.Prefix{}
-	emptyVersionsPage = &gofakes3.ListBucketVersionsPage{}
+	emptyPrefix       = &s3tohdfs.Prefix{}
+	emptyVersionsPage = &s3tohdfs.ListBucketVersionsPage{}
 )
 
 type Backend struct {
 	buckets          map[string]*bucket
-	timeSource       gofakes3.TimeSource
+	timeSource       s3tohdfs.TimeSource
 	versionGenerator *versionGenerator
 	versionSeed      int64
 	versionSeedSet   bool
@@ -25,12 +25,12 @@ type Backend struct {
 	lock             sync.RWMutex
 }
 
-var _ gofakes3.Backend = &Backend{}
-var _ gofakes3.VersionedBackend = &Backend{}
+var _ s3tohdfs.Backend = &Backend{}
+var _ s3tohdfs.VersionedBackend = &Backend{}
 
 type Option func(b *Backend)
 
-func WithTimeSource(timeSource gofakes3.TimeSource) Option {
+func WithTimeSource(timeSource s3tohdfs.TimeSource) Option {
 	return func(b *Backend) { b.timeSource = timeSource }
 }
 
@@ -46,7 +46,7 @@ func New(opts ...Option) *Backend {
 		opt(b)
 	}
 	if b.timeSource == nil {
-		b.timeSource = gofakes3.DefaultTimeSource()
+		b.timeSource = s3tohdfs.DefaultTimeSource()
 	}
 	if b.versionGenerator == nil {
 		if b.versionSeedSet {
@@ -58,13 +58,13 @@ func New(opts ...Option) *Backend {
 	return b
 }
 
-func (db *Backend) ListBuckets() ([]gofakes3.BucketInfo, error) {
+func (db *Backend) ListBuckets() ([]s3tohdfs.BucketInfo, error) {
 	db.lock.RLock()
 	defer db.lock.RUnlock()
 
-	var buckets = make([]gofakes3.BucketInfo, 0, len(db.buckets))
+	var buckets = make([]s3tohdfs.BucketInfo, 0, len(db.buckets))
 	for _, bucket := range db.buckets {
-		buckets = append(buckets, gofakes3.BucketInfo{
+		buckets = append(buckets, s3tohdfs.BucketInfo{
 			Name:         bucket.name,
 			CreationDate: bucket.creationDate,
 		})
@@ -73,7 +73,7 @@ func (db *Backend) ListBuckets() ([]gofakes3.BucketInfo, error) {
 	return buckets, nil
 }
 
-func (db *Backend) ListBucket(name string, prefix *gofakes3.Prefix, page gofakes3.ListBucketPage) (*gofakes3.ObjectList, error) {
+func (db *Backend) ListBucket(name string, prefix *s3tohdfs.Prefix, page s3tohdfs.ListBucketPage) (*s3tohdfs.ObjectList, error) {
 	if prefix == nil {
 		prefix = emptyPrefix
 	}
@@ -83,12 +83,12 @@ func (db *Backend) ListBucket(name string, prefix *gofakes3.Prefix, page gofakes
 
 	storedBucket := db.buckets[name]
 	if storedBucket == nil {
-		return nil, gofakes3.BucketNotFound(name)
+		return nil, s3tohdfs.BucketNotFound(name)
 	}
 
-	var response = gofakes3.NewObjectList()
+	var response = s3tohdfs.NewObjectList()
 	var iter = goskipiter.New(storedBucket.objects.Iterator())
-	var match gofakes3.PrefixMatch
+	var match s3tohdfs.PrefixMatch
 
 	if page.Marker != "" {
 		iter.Seek(page.Marker)
@@ -114,9 +114,9 @@ func (db *Backend) ListBucket(name string, prefix *gofakes3.Prefix, page gofakes
 			lastMatchedPart = match.MatchedPart
 
 		} else {
-			response.Add(&gofakes3.Content{
+			response.Add(&s3tohdfs.Content{
 				Key:          item.data.name,
-				LastModified: gofakes3.NewContentTime(item.data.lastModified),
+				LastModified: s3tohdfs.NewContentTime(item.data.lastModified),
 				ETag:         `"` + hex.EncodeToString(item.data.hash) + `"`,
 				Size:         int64(len(item.data.body)),
 			})
@@ -138,7 +138,7 @@ func (db *Backend) CreateBucket(name string) error {
 	defer db.lock.Unlock()
 
 	if db.buckets[name] != nil {
-		return gofakes3.ResourceError(gofakes3.ErrBucketAlreadyExists, name)
+		return s3tohdfs.ResourceError(s3tohdfs.ErrBucketAlreadyExists, name)
 	}
 
 	db.buckets[name] = newBucket(name, db.timeSource.Now(), db.nextVersion)
@@ -150,11 +150,11 @@ func (db *Backend) DeleteBucket(name string) error {
 	defer db.lock.Unlock()
 
 	if db.buckets[name] == nil {
-		return gofakes3.ErrNoSuchBucket
+		return s3tohdfs.ErrNoSuchBucket
 	}
 
 	if db.buckets[name].objects.Len() > 0 {
-		return gofakes3.ResourceError(gofakes3.ErrBucketNotEmpty, name)
+		return s3tohdfs.ResourceError(s3tohdfs.ErrBucketNotEmpty, name)
 	}
 
 	delete(db.buckets, name)
@@ -168,30 +168,30 @@ func (db *Backend) BucketExists(name string) (exists bool, err error) {
 	return db.buckets[name] != nil, nil
 }
 
-func (db *Backend) HeadObject(bucketName, objectName string) (*gofakes3.Object, error) {
+func (db *Backend) HeadObject(bucketName, objectName string) (*s3tohdfs.Object, error) {
 	db.lock.RLock()
 	defer db.lock.RUnlock()
 
 	bucket := db.buckets[bucketName]
 	if bucket == nil {
-		return nil, gofakes3.BucketNotFound(bucketName)
+		return nil, s3tohdfs.BucketNotFound(bucketName)
 	}
 
 	obj := bucket.object(objectName)
 	if obj == nil || obj.data.deleteMarker {
-		return nil, gofakes3.KeyNotFound(objectName)
+		return nil, s3tohdfs.KeyNotFound(objectName)
 	}
 
 	return obj.data.toObject(nil, false)
 }
 
-func (db *Backend) GetObject(bucketName, objectName string, rangeRequest *gofakes3.ObjectRangeRequest) (*gofakes3.Object, error) {
+func (db *Backend) GetObject(bucketName, objectName string, rangeRequest *s3tohdfs.ObjectRangeRequest) (*s3tohdfs.Object, error) {
 	db.lock.RLock()
 	defer db.lock.RUnlock()
 
 	bucket := db.buckets[bucketName]
 	if bucket == nil {
-		return nil, gofakes3.BucketNotFound(bucketName)
+		return nil, s3tohdfs.BucketNotFound(bucketName)
 	}
 
 	obj := bucket.object(objectName)
@@ -202,7 +202,7 @@ func (db *Backend) GetObject(bucketName, objectName string, rangeRequest *gofake
 		//
 		// The solution may be to return an object but no error if the object is
 		// a delete marker, and let the main GoFakeS3 class decide what to do.
-		return nil, gofakes3.KeyNotFound(objectName)
+		return nil, s3tohdfs.KeyNotFound(objectName)
 	}
 
 	result, err := obj.data.toObject(rangeRequest, true)
@@ -210,23 +210,23 @@ func (db *Backend) GetObject(bucketName, objectName string, rangeRequest *gofake
 		return nil, err
 	}
 
-	if bucket.versioning != gofakes3.VersioningEnabled {
+	if bucket.versioning != s3tohdfs.VersioningEnabled {
 		result.VersionID = ""
 	}
 
 	return result, nil
 }
 
-func (db *Backend) PutObject(bucketName, objectName string, meta map[string]string, input io.Reader, size int64) (result gofakes3.PutObjectResult, err error) {
+func (db *Backend) PutObject(bucketName, objectName string, meta map[string]string, input io.Reader, size int64) (result s3tohdfs.PutObjectResult, err error) {
 	// No need to lock the backend while we read the data into memory; it holds
 	// the write lock open unnecessarily, and could be blocked for an unreasonably
 	// long time by a connection timing out:
-	bts, err := gofakes3.ReadAll(input, size)
+	bts, err := s3tohdfs.ReadAll(input, size)
 	if err != nil {
 		return result, err
 	}
 
-	err = gofakes3.MergeMetadata(db, bucketName, objectName, meta)
+	err = s3tohdfs.MergeMetadata(db, bucketName, objectName, meta)
 	if err != nil {
 		return result, err
 	}
@@ -236,7 +236,7 @@ func (db *Backend) PutObject(bucketName, objectName string, meta map[string]stri
 
 	bucket := db.buckets[bucketName]
 	if bucket == nil {
-		return result, gofakes3.BucketNotFound(bucketName)
+		return result, s3tohdfs.BucketNotFound(bucketName)
 	}
 
 	hash := md5.Sum(bts)
@@ -252,7 +252,7 @@ func (db *Backend) PutObject(bucketName, objectName string, meta map[string]stri
 
 	bucket.put(objectName, item)
 
-	if bucket.versioning == gofakes3.VersioningEnabled {
+	if bucket.versioning == s3tohdfs.VersioningEnabled {
 		// versionID is assigned in bucket.put()
 		result.VersionID = item.versionID
 	}
@@ -260,25 +260,25 @@ func (db *Backend) PutObject(bucketName, objectName string, meta map[string]stri
 	return result, nil
 }
 
-func (db *Backend) DeleteObject(bucketName, objectName string) (result gofakes3.ObjectDeleteResult, rerr error) {
+func (db *Backend) DeleteObject(bucketName, objectName string) (result s3tohdfs.ObjectDeleteResult, rerr error) {
 	db.lock.Lock()
 	defer db.lock.Unlock()
 
 	bucket := db.buckets[bucketName]
 	if bucket == nil {
-		return result, gofakes3.BucketNotFound(bucketName)
+		return result, s3tohdfs.BucketNotFound(bucketName)
 	}
 
 	return bucket.rm(objectName, db.timeSource.Now())
 }
 
-func (db *Backend) DeleteMulti(bucketName string, objects ...string) (result gofakes3.MultiDeleteResult, err error) {
+func (db *Backend) DeleteMulti(bucketName string, objects ...string) (result s3tohdfs.MultiDeleteResult, err error) {
 	db.lock.Lock()
 	defer db.lock.Unlock()
 
 	bucket := db.buckets[bucketName]
 	if bucket == nil {
-		return result, gofakes3.BucketNotFound(bucketName)
+		return result, s3tohdfs.BucketNotFound(bucketName)
 	}
 
 	now := db.timeSource.Now()
@@ -288,15 +288,15 @@ func (db *Backend) DeleteMulti(bucketName string, objects ...string) (result gof
 		_ = dresult // FIXME: what to do with rm result in multi delete?
 
 		if err != nil {
-			errres := gofakes3.ErrorResultFromError(err)
-			if errres.Code == gofakes3.ErrInternal {
+			errres := s3tohdfs.ErrorResultFromError(err)
+			if errres.Code == s3tohdfs.ErrInternal {
 				// FIXME: log
 			}
 
 			result.Error = append(result.Error, errres)
 
 		} else {
-			result.Deleted = append(result.Deleted, gofakes3.ObjectID{
+			result.Deleted = append(result.Deleted, s3tohdfs.ObjectID{
 				Key: object,
 			})
 		}
@@ -305,30 +305,30 @@ func (db *Backend) DeleteMulti(bucketName string, objects ...string) (result gof
 	return result, nil
 }
 
-func (db *Backend) DeleteMultiVersions(bucketName string, objects ...gofakes3.ObjectID) (result gofakes3.MultiDeleteResult, err error) {
+func (db *Backend) DeleteMultiVersions(bucketName string, objects ...s3tohdfs.ObjectID) (result s3tohdfs.MultiDeleteResult, err error) {
 	db.lock.Lock()
 	defer db.lock.Unlock()
 
 	bucket := db.buckets[bucketName]
 	if bucket == nil {
-		return result, gofakes3.BucketNotFound(bucketName)
+		return result, s3tohdfs.BucketNotFound(bucketName)
 	}
 
 	now := db.timeSource.Now()
 
 	for _, object := range objects {
-		var dresult gofakes3.ObjectDeleteResult
+		var dresult s3tohdfs.ObjectDeleteResult
 		var err error
 		if object.VersionID != "" {
-			_, err = bucket.rmVersion(object.Key, gofakes3.VersionID(object.VersionID), now)
+			_, err = bucket.rmVersion(object.Key, s3tohdfs.VersionID(object.VersionID), now)
 		} else {
 			dresult, err = bucket.rm(object.Key, now)
 			_ = dresult // FIXME: what to do with rm result in multi delete?
 		}
 
 		if err != nil {
-			errres := gofakes3.ErrorResultFromError(err)
-			if errres.Code == gofakes3.ErrInternal {
+			errres := s3tohdfs.ErrorResultFromError(err)
+			if errres.Code == s3tohdfs.ErrInternal {
 				// FIXME: log
 			}
 
@@ -342,13 +342,13 @@ func (db *Backend) DeleteMultiVersions(bucketName string, objects ...gofakes3.Ob
 	return result, nil
 }
 
-func (db *Backend) VersioningConfiguration(bucketName string) (versioning gofakes3.VersioningConfiguration, rerr error) {
+func (db *Backend) VersioningConfiguration(bucketName string) (versioning s3tohdfs.VersioningConfiguration, rerr error) {
 	db.lock.RLock()
 	defer db.lock.RUnlock()
 
 	bucket := db.buckets[bucketName]
 	if bucket == nil {
-		return versioning, gofakes3.BucketNotFound(bucketName)
+		return versioning, s3tohdfs.BucketNotFound(bucketName)
 	}
 
 	versioning.Status = bucket.versioning
@@ -356,9 +356,9 @@ func (db *Backend) VersioningConfiguration(bucketName string) (versioning gofake
 	return versioning, nil
 }
 
-func (db *Backend) SetVersioningConfiguration(bucketName string, v gofakes3.VersioningConfiguration) error {
+func (db *Backend) SetVersioningConfiguration(bucketName string, v s3tohdfs.VersioningConfiguration) error {
 	if v.MFADelete.Enabled() {
-		return gofakes3.ErrNotImplemented
+		return s3tohdfs.ErrNotImplemented
 	}
 
 	db.lock.Lock()
@@ -366,7 +366,7 @@ func (db *Backend) SetVersioningConfiguration(bucketName string, v gofakes3.Vers
 
 	bucket := db.buckets[bucketName]
 	if bucket == nil {
-		return gofakes3.BucketNotFound(bucketName)
+		return s3tohdfs.BucketNotFound(bucketName)
 	}
 
 	bucket.setVersioning(v.Enabled())
@@ -376,8 +376,8 @@ func (db *Backend) SetVersioningConfiguration(bucketName string, v gofakes3.Vers
 
 func (db *Backend) GetObjectVersion(
 	bucketName, objectName string,
-	versionID gofakes3.VersionID,
-	rangeRequest *gofakes3.ObjectRangeRequest) (*gofakes3.Object, error) {
+	versionID s3tohdfs.VersionID,
+	rangeRequest *s3tohdfs.ObjectRangeRequest) (*s3tohdfs.Object, error) {
 	if versionID == "" {
 		return db.GetObject(bucketName, objectName, rangeRequest)
 	}
@@ -387,7 +387,7 @@ func (db *Backend) GetObjectVersion(
 
 	bucket := db.buckets[bucketName]
 	if bucket == nil {
-		return nil, gofakes3.BucketNotFound(bucketName)
+		return nil, s3tohdfs.BucketNotFound(bucketName)
 	}
 
 	ver, err := bucket.objectVersion(objectName, versionID)
@@ -398,7 +398,7 @@ func (db *Backend) GetObjectVersion(
 	return ver.toObject(rangeRequest, true)
 }
 
-func (db *Backend) HeadObjectVersion(bucketName, objectName string, versionID gofakes3.VersionID) (*gofakes3.Object, error) {
+func (db *Backend) HeadObjectVersion(bucketName, objectName string, versionID s3tohdfs.VersionID) (*s3tohdfs.Object, error) {
 	if versionID == "" {
 		return db.HeadObject(bucketName, objectName)
 	}
@@ -408,7 +408,7 @@ func (db *Backend) HeadObjectVersion(bucketName, objectName string, versionID go
 
 	bucket := db.buckets[bucketName]
 	if bucket == nil {
-		return nil, gofakes3.BucketNotFound(bucketName)
+		return nil, s3tohdfs.BucketNotFound(bucketName)
 	}
 
 	ver, err := bucket.objectVersion(objectName, versionID)
@@ -419,13 +419,13 @@ func (db *Backend) HeadObjectVersion(bucketName, objectName string, versionID go
 	return ver.toObject(nil, false)
 }
 
-func (db *Backend) DeleteObjectVersion(bucketName, objectName string, versionID gofakes3.VersionID) (result gofakes3.ObjectDeleteResult, rerr error) {
+func (db *Backend) DeleteObjectVersion(bucketName, objectName string, versionID s3tohdfs.VersionID) (result s3tohdfs.ObjectDeleteResult, rerr error) {
 	db.lock.Lock()
 	defer db.lock.Unlock()
 
 	bucket := db.buckets[bucketName]
 	if bucket == nil {
-		return result, gofakes3.BucketNotFound(bucketName)
+		return result, s3tohdfs.BucketNotFound(bucketName)
 	}
 
 	return bucket.rmVersion(objectName, versionID, db.timeSource.Now())
@@ -433,9 +433,9 @@ func (db *Backend) DeleteObjectVersion(bucketName, objectName string, versionID 
 
 func (db *Backend) ListBucketVersions(
 	bucketName string,
-	prefix *gofakes3.Prefix,
-	page *gofakes3.ListBucketVersionsPage,
-) (*gofakes3.ListBucketVersionsResult, error) {
+	prefix *s3tohdfs.Prefix,
+	page *s3tohdfs.ListBucketVersionsPage,
+) (*s3tohdfs.ListBucketVersionsResult, error) {
 	if prefix == nil {
 		prefix = emptyPrefix
 	}
@@ -446,20 +446,20 @@ func (db *Backend) ListBucketVersions(
 	db.lock.RLock()
 	defer db.lock.RUnlock()
 
-	result := gofakes3.NewListBucketVersionsResult(bucketName, prefix, page)
+	result := s3tohdfs.NewListBucketVersionsResult(bucketName, prefix, page)
 
 	bucket := db.buckets[bucketName]
 	if bucket == nil {
-		return result, gofakes3.BucketNotFound(bucketName)
+		return result, s3tohdfs.BucketNotFound(bucketName)
 	}
 
 	var iter = goskipiter.New(bucket.objects.Iterator())
-	var match gofakes3.PrefixMatch
+	var match s3tohdfs.PrefixMatch
 
 	if page.KeyMarker != "" {
 		if !prefix.Match(page.KeyMarker, &match) {
 			// FIXME: NO idea what S3 would do here.
-			return result, gofakes3.ErrInternal
+			return result, s3tohdfs.ErrInternal
 		}
 		iter.Seek(page.KeyMarker)
 	}
@@ -496,7 +496,7 @@ func (db *Backend) ListBucketVersions(
 			if page.VersionIDMarker != "" {
 				if !versions.Seek(page.VersionIDMarker) {
 					// FIXME: log
-					return result, gofakes3.ErrInternal
+					return result, s3tohdfs.ErrInternal
 				}
 			}
 			first = false
@@ -506,25 +506,25 @@ func (db *Backend) ListBucketVersions(
 			version := versions.Value()
 
 			if version.deleteMarker {
-				marker := &gofakes3.DeleteMarker{
+				marker := &s3tohdfs.DeleteMarker{
 					Key:          version.name,
 					IsLatest:     version == object.data,
-					LastModified: gofakes3.NewContentTime(version.lastModified),
+					LastModified: s3tohdfs.NewContentTime(version.lastModified),
 				}
-				if bucket.versioning != gofakes3.VersioningNone { // S300005
+				if bucket.versioning != s3tohdfs.VersioningNone { // S300005
 					marker.VersionID = version.versionID
 				}
 				result.Versions = append(result.Versions, marker)
 
 			} else {
-				resultVer := &gofakes3.Version{
+				resultVer := &s3tohdfs.Version{
 					Key:          version.name,
 					IsLatest:     version == object.data,
-					LastModified: gofakes3.NewContentTime(version.lastModified),
+					LastModified: s3tohdfs.NewContentTime(version.lastModified),
 					Size:         int64(len(version.body)),
 					ETag:         version.etag,
 				}
-				if bucket.versioning != gofakes3.VersioningNone { // S300005
+				if bucket.versioning != s3tohdfs.VersioningNone { // S300005
 					resultVer.VersionID = version.versionID
 				}
 				result.Versions = append(result.Versions, resultVer)
@@ -545,7 +545,7 @@ done:
 }
 
 // nextVersion assumes the backend's lock is acquired
-func (db *Backend) nextVersion() gofakes3.VersionID {
+func (db *Backend) nextVersion() s3tohdfs.VersionID {
 	v, scr := db.versionGenerator.Next(db.versionScratch)
 	db.versionScratch = scr
 	return v

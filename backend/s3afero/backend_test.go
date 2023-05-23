@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/afero"
 )
 
-func testingBackends(t *testing.T) []gofakes3.Backend {
+func testingBackends(t *testing.T) []s3tohdfs.Backend {
 	t.Helper()
 
 	single, err := SingleBucket("test", afero.NewMemMapFs(), nil)
@@ -29,7 +29,7 @@ func testingBackends(t *testing.T) []gofakes3.Backend {
 		t.Fatal(err)
 	}
 
-	backends := []gofakes3.Backend{single, multi}
+	backends := []s3tohdfs.Backend{single, multi}
 	return backends
 }
 
@@ -96,7 +96,7 @@ func TestPutGetRange(t *testing.T) {
 			hasher.Write(contents)
 			hash := hasher.Sum(nil)
 
-			obj, err := backend.GetObject("test", "yep", &gofakes3.ObjectRangeRequest{Start: 1, End: 6})
+			obj, err := backend.GetObject("test", "yep", &s3tohdfs.ObjectRangeRequest{Start: 1, End: 6})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -144,8 +144,8 @@ func TestPutListRoot(t *testing.T) {
 			}
 
 			result, err := backend.ListBucket("test",
-				&gofakes3.Prefix{HasPrefix: true, HasDelimiter: true, Delimiter: "/"},
-				gofakes3.ListBucketPage{})
+				&s3tohdfs.Prefix{HasPrefix: true, HasDelimiter: true, Delimiter: "/"},
+				s3tohdfs.ListBucketPage{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -191,8 +191,8 @@ func TestPutListDir(t *testing.T) {
 
 			{
 				result, err := backend.ListBucket("test",
-					&gofakes3.Prefix{Prefix: "foo/", HasPrefix: true, HasDelimiter: true, Delimiter: "/"},
-					gofakes3.ListBucketPage{})
+					&s3tohdfs.Prefix{Prefix: "foo/", HasPrefix: true, HasDelimiter: true, Delimiter: "/"},
+					s3tohdfs.ListBucketPage{})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -203,8 +203,8 @@ func TestPutListDir(t *testing.T) {
 
 			{
 				result, err := backend.ListBucket("test",
-					&gofakes3.Prefix{Prefix: "foo/bar", HasPrefix: true, HasDelimiter: true, Delimiter: "/"},
-					gofakes3.ListBucketPage{})
+					&s3tohdfs.Prefix{Prefix: "foo/bar", HasPrefix: true, HasDelimiter: true, Delimiter: "/"},
+					s3tohdfs.ListBucketPage{})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -235,8 +235,8 @@ func TestPutDelete(t *testing.T) {
 			}
 
 			result, err := backend.ListBucket("test",
-				&gofakes3.Prefix{HasPrefix: true, HasDelimiter: true, Delimiter: "/"},
-				gofakes3.ListBucketPage{})
+				&s3tohdfs.Prefix{HasPrefix: true, HasDelimiter: true, Delimiter: "/"},
+				s3tohdfs.ListBucketPage{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -276,8 +276,8 @@ func TestPutDeleteMulti(t *testing.T) {
 			}
 
 			bucketContents, err := backend.ListBucket("test",
-				&gofakes3.Prefix{HasPrefix: true, HasDelimiter: true, Delimiter: "/"},
-				gofakes3.ListBucketPage{})
+				&s3tohdfs.Prefix{HasPrefix: true, HasDelimiter: true, Delimiter: "/"},
+				s3tohdfs.ListBucketPage{})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -29,7 +29,7 @@ type boltObject struct {
 	Hash         []byte
 }
 
-func (b *boltObject) Object(objectName string, rangeRequest *gofakes3.ObjectRangeRequest) (*gofakes3.Object, error) {
+func (b *boltObject) Object(objectName string, rangeRequest *s3tohdfs.ObjectRangeRequest) (*s3tohdfs.Object, error) {
 	data := b.Contents
 
 	rnge, err := rangeRequest.Range(b.Size)
@@ -41,7 +41,7 @@ func (b *boltObject) Object(objectName string, rangeRequest *gofakes3.ObjectRang
 		data = data[rnge.Start : rnge.Start+rnge.Length]
 	}
 
-	return &gofakes3.Object{
+	return &s3tohdfs.Object{
 		Name:     objectName,
 		Metadata: b.Metadata,
 		Size:     b.Size,

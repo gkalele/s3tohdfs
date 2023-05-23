@@ -1,4 +1,4 @@
-package gofakes3
+package s3tohdfs
 
 // Initialisation file for tests in the 'gofakes3' package. Internal tests, unit
 // tests that use struct internals, etc go in this package.

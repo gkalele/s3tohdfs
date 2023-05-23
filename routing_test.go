@@ -1,4 +1,4 @@
-package gofakes3_test
+package s3tohdfs_test
 
 import (
 	"testing"

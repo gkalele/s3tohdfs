@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/afero"
 )
 
-var emptyPrefix = &gofakes3.Prefix{}
+var emptyPrefix = &s3tohdfs.Prefix{}
 
 type readerWithCloser struct {
 	io.Reader
@@ -40,7 +40,7 @@ func (rwc *readerWithCloser) Close() error {
 // you to RemoveAll against your `/` directory.
 func ensureNoOsFs(name string, fs afero.Fs) error {
 	if _, ok := fs.(*afero.OsFs); ok {
-		return fmt.Errorf("gofakes3: invalid OsFs passed to %s,. s3afero backends assume they have control over the filesystem's root. use afero.NewBasePathFs() to avoid misery", name)
+		return fmt.Errorf("s3tohdfs: invalid OsFs passed to %s,. s3afero backends assume they have control over the filesystem's root. use afero.NewBasePathFs() to avoid misery", name)
 	}
 	return nil
 }
@@ -65,7 +65,7 @@ const (
 // or is less than 2 levels down from the filesystem root, an error is returned.
 func FsPath(path string, flags FsFlags) (afero.Fs, error) {
 	if path == "" {
-		return nil, fmt.Errorf("gofakes3: empty path")
+		return nil, fmt.Errorf("s3tohdfs: empty path")
 	}
 
 	path, err := filepath.Abs(path)
@@ -90,7 +90,7 @@ func FsPath(path string, flags FsFlags) (afero.Fs, error) {
 	} else if err != nil {
 		return nil, err
 	} else if !stat.IsDir() {
-		return nil, fmt.Errorf("gofakes3: path %q is not a directory", path)
+		return nil, fmt.Errorf("s3tohdfs: path %q is not a directory", path)
 	}
 
 	parts := strings.Split(path, string(filepath.Separator))
@@ -98,7 +98,7 @@ func FsPath(path string, flags FsFlags) (afero.Fs, error) {
 	// cheap and nasty footgun check to ensure root path is not used
 	// FIXME: possibly not enough on windows
 	if len(parts) <= 1 {
-		return nil, fmt.Errorf("gofakes3: path %q at the root of the file system not allowed; use FsAllowAll to bypass", path)
+		return nil, fmt.Errorf("s3tohdfs: path %q at the root of the file system not allowed; use FsAllowAll to bypass", path)
 	}
 
 	return afero.NewBasePathFs(afero.NewOsFs(), path), nil

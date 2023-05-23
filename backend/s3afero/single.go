@@ -18,12 +18,12 @@ import (
 	"github.com/spf13/afero"
 )
 
-// SingleBucketBackend is a gofakes3.Backend that allows you to treat an existing
+// SingleBucketBackend is a s3tohdfs.Backend that allows you to treat an existing
 // filesystem as an S3 bucket directly. It does not support multiple buckets.
 //
 // A second afero.Fs, metaFs, may be passed; if this is nil,
 // afero.NewMemMapFs() is used and the metadata will not persist between
-// restarts of gofakes3.
+// restarts of s3tohdfs.
 //
 // It is STRONGLY recommended that the metadata Fs is not contained within the
 // `/buckets` subdirectory as that could make a significant mess, but this is
@@ -35,7 +35,7 @@ type SingleBucketBackend struct {
 	name      string
 }
 
-var _ gofakes3.Backend = &SingleBucketBackend{}
+var _ s3tohdfs.Backend = &SingleBucketBackend{}
 
 func SingleBucket(name string, fs afero.Fs, metaFs afero.Fs, opts ...SingleOption) (*SingleBucketBackend, error) {
 	if err := ensureNoOsFs("fs", fs); err != nil {
@@ -50,7 +50,7 @@ func SingleBucket(name string, fs afero.Fs, metaFs afero.Fs, opts ...SingleOptio
 		}
 	}
 
-	if err := gofakes3.ValidateBucketName(name); err != nil {
+	if err := s3tohdfs.ValidateBucketName(name); err != nil {
 		return nil, err
 	}
 
@@ -68,7 +68,7 @@ func SingleBucket(name string, fs afero.Fs, metaFs afero.Fs, opts ...SingleOptio
 	return b, nil
 }
 
-func (db *SingleBucketBackend) ListBuckets() ([]gofakes3.BucketInfo, error) {
+func (db *SingleBucketBackend) ListBuckets() ([]s3tohdfs.BucketInfo, error) {
 	db.lock.Lock()
 	defer db.lock.Unlock()
 
@@ -85,20 +85,20 @@ func (db *SingleBucketBackend) ListBuckets() ([]gofakes3.BucketInfo, error) {
 
 	// FIXME: "birth time" is not available cross-platform.
 	// See MultiBucketBackend.ListBuckets for more details.
-	return []gofakes3.BucketInfo{
-		{Name: db.name, CreationDate: gofakes3.NewContentTime(created)},
+	return []s3tohdfs.BucketInfo{
+		{Name: db.name, CreationDate: s3tohdfs.NewContentTime(created)},
 	}, nil
 }
 
-func (db *SingleBucketBackend) ListBucket(bucket string, prefix *gofakes3.Prefix, page gofakes3.ListBucketPage) (*gofakes3.ObjectList, error) {
+func (db *SingleBucketBackend) ListBucket(bucket string, prefix *s3tohdfs.Prefix, page s3tohdfs.ListBucketPage) (*s3tohdfs.ObjectList, error) {
 	if bucket != db.name {
-		return nil, gofakes3.BucketNotFound(bucket)
+		return nil, s3tohdfs.BucketNotFound(bucket)
 	}
 	if prefix == nil {
 		prefix = emptyPrefix
 	}
 	if !page.IsEmpty() {
-		return nil, gofakes3.ErrInternalPageNotImplemented
+		return nil, s3tohdfs.ErrInternalPageNotImplemented
 	}
 
 	db.lock.Lock()
@@ -112,13 +112,13 @@ func (db *SingleBucketBackend) ListBucket(bucket string, prefix *gofakes3.Prefix
 	}
 }
 
-func (db *SingleBucketBackend) getBucketWithFilePrefixLocked(bucket string, prefixPath, prefixPart string) (*gofakes3.ObjectList, error) {
+func (db *SingleBucketBackend) getBucketWithFilePrefixLocked(bucket string, prefixPath, prefixPart string) (*s3tohdfs.ObjectList, error) {
 	dirEntries, err := afero.ReadDir(db.fs, filepath.FromSlash(prefixPath))
 	if err != nil {
 		return nil, err
 	}
 
-	response := gofakes3.NewObjectList()
+	response := s3tohdfs.NewObjectList()
 
 	for _, entry := range dirEntries {
 		object := entry.Name()
@@ -141,9 +141,9 @@ func (db *SingleBucketBackend) getBucketWithFilePrefixLocked(bucket string, pref
 				return nil, err
 			}
 
-			response.Add(&gofakes3.Content{
+			response.Add(&s3tohdfs.Content{
 				Key:          objectPath,
-				LastModified: gofakes3.NewContentTime(mtime),
+				LastModified: s3tohdfs.NewContentTime(mtime),
 				ETag:         `"` + hex.EncodeToString(meta.Hash) + `"`,
 				Size:         size,
 			})
@@ -153,8 +153,8 @@ func (db *SingleBucketBackend) getBucketWithFilePrefixLocked(bucket string, pref
 	return response, nil
 }
 
-func (db *SingleBucketBackend) getBucketWithArbitraryPrefixLocked(bucket string, prefix *gofakes3.Prefix) (*gofakes3.ObjectList, error) {
-	response := gofakes3.NewObjectList()
+func (db *SingleBucketBackend) getBucketWithArbitraryPrefixLocked(bucket string, prefix *s3tohdfs.Prefix) (*s3tohdfs.ObjectList, error) {
+	response := s3tohdfs.NewObjectList()
 
 	if err := afero.Walk(db.fs, filepath.FromSlash("."), func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
@@ -173,9 +173,9 @@ func (db *SingleBucketBackend) getBucketWithArbitraryPrefixLocked(bucket string,
 			return err
 		}
 
-		response.Add(&gofakes3.Content{
+		response.Add(&s3tohdfs.Content{
 			Key:          objectPath,
-			LastModified: gofakes3.NewContentTime(mtime),
+			LastModified: s3tohdfs.NewContentTime(mtime),
 			ETag:         `"` + hex.EncodeToString(meta.Hash) + `"`,
 			Size:         size,
 		})
@@ -229,9 +229,9 @@ func (db *SingleBucketBackend) ensureMeta(
 	}
 }
 
-func (db *SingleBucketBackend) HeadObject(bucketName, objectName string) (*gofakes3.Object, error) {
+func (db *SingleBucketBackend) HeadObject(bucketName, objectName string) (*s3tohdfs.Object, error) {
 	if bucketName != db.name {
-		return nil, gofakes3.BucketNotFound(bucketName)
+		return nil, s3tohdfs.BucketNotFound(bucketName)
 	}
 
 	db.lock.Lock()
@@ -239,11 +239,11 @@ func (db *SingleBucketBackend) HeadObject(bucketName, objectName string) (*gofak
 
 	stat, err := db.fs.Stat(filepath.FromSlash(objectName))
 	if os.IsNotExist(err) {
-		return nil, gofakes3.KeyNotFound(objectName)
+		return nil, s3tohdfs.KeyNotFound(objectName)
 	} else if err != nil {
 		return nil, err
 	} else if stat.IsDir() {
-		return nil, gofakes3.KeyNotFound(objectName)
+		return nil, s3tohdfs.KeyNotFound(objectName)
 	}
 
 	size, mtime := stat.Size(), stat.ModTime()
@@ -252,7 +252,7 @@ func (db *SingleBucketBackend) HeadObject(bucketName, objectName string) (*gofak
 		return nil, err
 	}
 
-	return &gofakes3.Object{
+	return &s3tohdfs.Object{
 		Name:     objectName,
 		Hash:     meta.Hash,
 		Metadata: meta.Meta,
@@ -261,9 +261,9 @@ func (db *SingleBucketBackend) HeadObject(bucketName, objectName string) (*gofak
 	}, nil
 }
 
-func (db *SingleBucketBackend) GetObject(bucketName, objectName string, rangeRequest *gofakes3.ObjectRangeRequest) (obj *gofakes3.Object, err error) {
+func (db *SingleBucketBackend) GetObject(bucketName, objectName string, rangeRequest *s3tohdfs.ObjectRangeRequest) (obj *s3tohdfs.Object, err error) {
 	if bucketName != db.name {
-		return nil, gofakes3.BucketNotFound(bucketName)
+		return nil, s3tohdfs.BucketNotFound(bucketName)
 	}
 
 	db.lock.Lock()
@@ -271,7 +271,7 @@ func (db *SingleBucketBackend) GetObject(bucketName, objectName string, rangeReq
 
 	f, err := db.fs.Open(filepath.FromSlash(objectName))
 	if os.IsNotExist(err) {
-		return nil, gofakes3.KeyNotFound(objectName)
+		return nil, s3tohdfs.KeyNotFound(objectName)
 	} else if err != nil {
 		return nil, err
 	}
@@ -286,7 +286,7 @@ func (db *SingleBucketBackend) GetObject(bucketName, objectName string, rangeReq
 	if err != nil {
 		return nil, err
 	} else if stat.IsDir() {
-		return nil, gofakes3.KeyNotFound(objectName)
+		return nil, s3tohdfs.KeyNotFound(objectName)
 	}
 
 	size, mtime := stat.Size(), stat.ModTime()
@@ -309,7 +309,7 @@ func (db *SingleBucketBackend) GetObject(bucketName, objectName string, rangeReq
 		return nil, err
 	}
 
-	return &gofakes3.Object{
+	return &s3tohdfs.Object{
 		Name:     objectName,
 		Hash:     meta.Hash,
 		Metadata: meta.Meta,
@@ -323,13 +323,13 @@ func (db *SingleBucketBackend) PutObject(
 	bucketName, objectName string,
 	meta map[string]string,
 	input io.Reader, size int64,
-) (result gofakes3.PutObjectResult, err error) {
+) (result s3tohdfs.PutObjectResult, err error) {
 
 	if bucketName != db.name {
-		return result, gofakes3.BucketNotFound(bucketName)
+		return result, s3tohdfs.BucketNotFound(bucketName)
 	}
 
-	err = gofakes3.MergeMetadata(db, bucketName, objectName, meta)
+	err = s3tohdfs.MergeMetadata(db, bucketName, objectName, meta)
 	if err != nil {
 		return result, err
 	}
@@ -393,9 +393,9 @@ func (db *SingleBucketBackend) PutObject(
 	return result, nil
 }
 
-func (db *SingleBucketBackend) DeleteMulti(bucketName string, objects ...string) (result gofakes3.MultiDeleteResult, rerr error) {
+func (db *SingleBucketBackend) DeleteMulti(bucketName string, objects ...string) (result s3tohdfs.MultiDeleteResult, rerr error) {
 	if bucketName != db.name {
-		return result, gofakes3.BucketNotFound(bucketName)
+		return result, s3tohdfs.BucketNotFound(bucketName)
 	}
 
 	db.lock.Lock()
@@ -404,13 +404,13 @@ func (db *SingleBucketBackend) DeleteMulti(bucketName string, objects ...string)
 	for _, object := range objects {
 		if err := db.deleteObjectLocked(bucketName, object); err != nil {
 			log.Println("delete object failed:", err)
-			result.Error = append(result.Error, gofakes3.ErrorResult{
-				Code:    gofakes3.ErrInternal,
-				Message: gofakes3.ErrInternal.Message(),
+			result.Error = append(result.Error, s3tohdfs.ErrorResult{
+				Code:    s3tohdfs.ErrInternal,
+				Message: s3tohdfs.ErrInternal.Message(),
 				Key:     object,
 			})
 		} else {
-			result.Deleted = append(result.Deleted, gofakes3.ObjectID{
+			result.Deleted = append(result.Deleted, s3tohdfs.ObjectID{
 				Key: object,
 			})
 		}
@@ -419,9 +419,9 @@ func (db *SingleBucketBackend) DeleteMulti(bucketName string, objects ...string)
 	return result, nil
 }
 
-func (db *SingleBucketBackend) DeleteObject(bucketName, objectName string) (result gofakes3.ObjectDeleteResult, rerr error) {
+func (db *SingleBucketBackend) DeleteObject(bucketName, objectName string) (result s3tohdfs.ObjectDeleteResult, rerr error) {
 	if bucketName != db.name {
-		return result, gofakes3.BucketNotFound(bucketName)
+		return result, s3tohdfs.BucketNotFound(bucketName)
 	}
 
 	db.lock.Lock()
@@ -446,13 +446,13 @@ func (db *SingleBucketBackend) deleteObjectLocked(bucketName, objectName string)
 // CreateBucket cannot be implemented by this backend. See MultiBucketBackend if you
 // need a backend that supports it.
 func (db *SingleBucketBackend) CreateBucket(name string) error {
-	return gofakes3.ErrNotImplemented
+	return s3tohdfs.ErrNotImplemented
 }
 
 // DeleteBucket cannot be implemented by this backend. See MultiBucketBackend if you
 // need a backend that supports it.
 func (db *SingleBucketBackend) DeleteBucket(name string) error {
-	return gofakes3.ErrNotImplemented
+	return s3tohdfs.ErrNotImplemented
 }
 
 func (db *SingleBucketBackend) BucketExists(name string) (exists bool, err error) {

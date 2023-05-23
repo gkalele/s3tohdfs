@@ -10,15 +10,15 @@ import (
 	"github.com/ryszard/goskiplist/skiplist"
 )
 
-type versionGenFunc func() gofakes3.VersionID
+type versionGenFunc func() s3tohdfs.VersionID
 
 type versioningStatus int
 
 type bucket struct {
 	name         string
-	versioning   gofakes3.VersioningStatus
+	versioning   s3tohdfs.VersioningStatus
 	versionGen   versionGenFunc
-	creationDate gofakes3.ContentTime
+	creationDate s3tohdfs.ContentTime
 
 	objects *skiplist.SkipList
 }
@@ -26,7 +26,7 @@ type bucket struct {
 func newBucket(name string, at time.Time, versionGen versionGenFunc) *bucket {
 	return &bucket{
 		name:         name,
-		creationDate: gofakes3.NewContentTime(at),
+		creationDate: s3tohdfs.NewContentTime(at),
 		versionGen:   versionGen,
 		objects:      skiplist.NewStringMap(),
 	}
@@ -58,7 +58,7 @@ type bucketObjectIterator struct {
 	done     bool
 }
 
-func (b *bucketObjectIterator) Seek(key gofakes3.VersionID) bool {
+func (b *bucketObjectIterator) Seek(key s3tohdfs.VersionID) bool {
 	if b.iter.Seek(key) {
 		return true
 	}
@@ -114,7 +114,7 @@ func (b *bucketObjectIterator) Value() *bucketData {
 type bucketData struct {
 	name         string
 	lastModified time.Time
-	versionID    gofakes3.VersionID
+	versionID    s3tohdfs.VersionID
 	deleteMarker bool
 	body         []byte
 	hash         []byte
@@ -122,12 +122,12 @@ type bucketData struct {
 	metadata     map[string]string
 }
 
-func (bi *bucketData) toObject(rangeRequest *gofakes3.ObjectRangeRequest, withBody bool) (obj *gofakes3.Object, err error) {
+func (bi *bucketData) toObject(rangeRequest *s3tohdfs.ObjectRangeRequest, withBody bool) (obj *s3tohdfs.Object, err error) {
 	sz := int64(len(bi.body))
 	data := bi.body
 
 	var contents io.ReadCloser
-	var rnge *gofakes3.ObjectRange
+	var rnge *s3tohdfs.ObjectRange
 
 	if withBody {
 		// In case of a range request the correct part of the slice is extracted:
@@ -148,7 +148,7 @@ func (bi *bucketData) toObject(rangeRequest *gofakes3.ObjectRangeRequest, withBo
 		contents = s3io.NoOpReadCloser{}
 	}
 
-	return &gofakes3.Object{
+	return &s3tohdfs.Object{
 		Name:           bi.name,
 		Hash:           bi.hash,
 		Metadata:       bi.metadata,
@@ -162,9 +162,9 @@ func (bi *bucketData) toObject(rangeRequest *gofakes3.ObjectRangeRequest, withBo
 
 func (b *bucket) setVersioning(enabled bool) {
 	if enabled {
-		b.versioning = gofakes3.VersioningEnabled
-	} else if b.versioning == gofakes3.VersioningEnabled {
-		b.versioning = gofakes3.VersioningSuspended
+		b.versioning = s3tohdfs.VersioningEnabled
+	} else if b.versioning == s3tohdfs.VersioningEnabled {
+		b.versioning = s3tohdfs.VersioningSuspended
 	}
 }
 
@@ -177,15 +177,15 @@ func (b *bucket) object(objectName string) (obj *bucketObject) {
 	return obj
 }
 
-func (b *bucket) objectVersion(objectName string, versionID gofakes3.VersionID) (*bucketData, error) {
+func (b *bucket) objectVersion(objectName string, versionID s3tohdfs.VersionID) (*bucketData, error) {
 	obj := b.object(objectName)
 	if obj == nil {
-		return nil, gofakes3.KeyNotFound(objectName)
+		return nil, s3tohdfs.KeyNotFound(objectName)
 	}
 
 	if versionID == "" {
 		if obj.data.deleteMarker {
-			return nil, gofakes3.KeyNotFound(objectName)
+			return nil, s3tohdfs.KeyNotFound(objectName)
 		}
 		return obj.data, nil
 	}
@@ -194,11 +194,11 @@ func (b *bucket) objectVersion(objectName string, versionID gofakes3.VersionID) 
 		return obj.data, nil
 	}
 	if obj.versions == nil {
-		return nil, gofakes3.ErrNoSuchVersion
+		return nil, s3tohdfs.ErrNoSuchVersion
 	}
 	versionIface, _ := obj.versions.Get(versionID)
 	if versionIface == nil {
-		return nil, gofakes3.ErrNoSuchVersion
+		return nil, s3tohdfs.ErrNoSuchVersion
 	}
 
 	return versionIface.(*bucketData), nil
@@ -214,11 +214,11 @@ func (b *bucket) put(name string, item *bucketData) {
 		b.objects.Set(name, object)
 	}
 
-	if b.versioning == gofakes3.VersioningEnabled {
+	if b.versioning == s3tohdfs.VersioningEnabled {
 		if object.data != nil {
 			if object.versions == nil {
 				object.versions = skiplist.NewCustomMap(func(l, r interface{}) bool {
-					return l.(gofakes3.VersionID) < r.(gofakes3.VersionID)
+					return l.(s3tohdfs.VersionID) < r.(s3tohdfs.VersionID)
 				})
 			}
 			object.versions.Set(object.data.versionID, object.data)
@@ -228,14 +228,14 @@ func (b *bucket) put(name string, item *bucketData) {
 	object.data = item
 }
 
-func (b *bucket) rm(name string, at time.Time) (result gofakes3.ObjectDeleteResult, rerr error) {
+func (b *bucket) rm(name string, at time.Time) (result s3tohdfs.ObjectDeleteResult, rerr error) {
 	object := b.object(name)
 	if object == nil {
 		// S3 does not report an error when attemping to delete a key that does not exist
 		return result, nil
 	}
 
-	if b.versioning == gofakes3.VersioningEnabled {
+	if b.versioning == s3tohdfs.VersioningEnabled {
 		item := &bucketData{lastModified: at, name: name, deleteMarker: true}
 		b.put(name, item)
 		result.IsDeleteMarker = true
@@ -251,7 +251,7 @@ func (b *bucket) rm(name string, at time.Time) (result gofakes3.ObjectDeleteResu
 	return result, nil
 }
 
-func (b *bucket) rmVersion(name string, versionID gofakes3.VersionID, at time.Time) (result gofakes3.ObjectDeleteResult, rerr error) {
+func (b *bucket) rmVersion(name string, versionID s3tohdfs.VersionID, at time.Time) (result s3tohdfs.ObjectDeleteResult, rerr error) {
 	object := b.object(name)
 	if object == nil {
 		return result, nil
