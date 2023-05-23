@@ -126,7 +126,7 @@ type PutObjectResult struct {
 }
 
 // Backend provides a set of operations to be implemented in order to support
-// gofakes3.
+// s3tohdfs.
 //
 // The Backend API is not yet stable; if you create your own Backend, breakage
 // is likely until this notice is removed.
